@@ -18,7 +18,9 @@ resource "aws_subnet" "public_1" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "cloudcart-public-1"
+    Name                                  = "cloudcart-public-1"
+    "kubernetes.io/role/elb"              = "1"
+    "kubernetes.io/cluster/cloudcart-eks" = "shared"
   }
 }
 
@@ -30,7 +32,9 @@ resource "aws_subnet" "public_2" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "cloudcart-public-2"
+    Name                                  = "cloudcart-public-2"
+    "kubernetes.io/role/elb"              = "1"
+    "kubernetes.io/cluster/cloudcart-eks" = "shared"
   }
 }
 
