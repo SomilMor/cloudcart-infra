@@ -1,1162 +1,433 @@
-\# CloudCart Infrastructure
+# CloudCart Infrastructure
 
+Terraform-based AWS infrastructure for the CloudCart DevOps platform.
 
+This repository contains the Infrastructure as Code used to provision the AWS networking and Amazon EKS environment for CloudCart.
 
-Infrastructure-as-Code repository for the CloudCart DevOps project.
+## Project Overview
 
+CloudCart is a cloud-native microservices project designed to demonstrate an end-to-end DevOps workflow on AWS.
 
+The project is separated into three repositories:
 
-This repository contains the Terraform configuration used to provision the AWS infrastructure required to run CloudCart on Amazon EKS.
+- `cloudcart-apps` contains application services, Dockerfiles, and the Jenkins CI pipeline.
+- `cloudcart-manifests` contains Kubernetes manifests and the Argo CD application configuration.
+- `cloudcart-infra` contains Terraform configuration for AWS infrastructure.
 
+This repository represents the infrastructure layer.
 
+## Infrastructure Provisioned
 
-CloudCart is a microservices-based application deployed through a CI/CD and GitOps workflow using Jenkins, Docker, Kubernetes, Argo CD, Prometheus, Grafana, Loki, and AWS.
+Terraform provisions:
 
+- One VPC
+- Two public subnets
+- Internet Gateway
+- Public route table and subnet associations
+- Security group
+- IAM role for the EKS control plane
+- IAM role for EKS worker nodes
+- Amazon EKS cluster
+- EKS managed node group
 
+The infrastructure is deployed in AWS region `ap-south-1`.
 
-\---
+## AWS Networking
 
+### VPC
 
-
-\## Project Overview
-
-
-
-The CloudCart project is separated into three primary repositories:
-
-
-
-\- `cloudcart-apps` - application source code, Dockerfiles, and Jenkins CI pipeline
-
-\- `cloudcart-manifests` - Kubernetes manifests and Argo CD configuration
-
-\- `cloudcart-infra` - Terraform infrastructure configuration
-
-
-
-This repository is responsible specifically for the AWS infrastructure layer.
-
-
-
-Terraform provisions the networking, security, IAM, Amazon EKS cluster, and managed worker node required by the platform.
-
-
-
-\---
-
-
-
-\## Infrastructure Architecture
-
-
-
-The Terraform configuration provisions the following infrastructure:
-
-
-
-1\. AWS VPC
-
-2\. Two public subnets
-
-3\. Internet Gateway
-
-4\. Public route table
-
-5\. Security group
-
-6\. IAM roles and policies
-
-7\. Amazon EKS cluster
-
-8\. EKS managed node group
-
-
-
-The infrastructure is deployed in the AWS `ap-south-1` region.
-
-
-
-\---
-
-
-
-\## AWS Networking
-
-
-
-\### VPC
-
-
-
-CloudCart uses a dedicated VPC with the following CIDR range:
-
-
+The CloudCart VPC uses:
 
 ```text
-
 10.0.0.0/16
-
 ```
 
+DNS support and DNS hostnames are enabled.
 
-
-The VPC has DNS support and DNS hostnames enabled.
-
-
-
-\### Public Subnets
-
-
-
-Two public subnets are provisioned across separate Availability Zones.
-
-
+### Public Subnets
 
 | Subnet | CIDR | Availability Zone |
-
 | --- | --- | --- |
-
 | Public Subnet 1 | `10.0.1.0/24` | `ap-south-1a` |
-
 | Public Subnet 2 | `10.0.2.0/24` | `ap-south-1b` |
 
+Public IP assignment is enabled on both subnets.
 
+The subnets also contain Kubernetes tags for EKS and load balancer integration.
 
-Public IP assignment is enabled for instances launched inside these subnets.
+### Internet Gateway
 
+An Internet Gateway is attached to the VPC.
 
+The public route table provides a default route through the Internet Gateway, and both public subnets are associated with that route table.
 
-The subnets are also tagged for Kubernetes and AWS load balancer integration.
+## Security Group
 
+Terraform creates `cloudcart-sg`.
 
-
-\---
-
-
-
-\## Internet Gateway
-
-
-
-An Internet Gateway is attached to the CloudCart VPC.
-
-
-
-A public route table contains the following route:
-
-
-
-```text
-
-0.0.0.0/0 -> Internet Gateway
-
-```
-
-
-
-Both public subnets are associated with this route table.
-
-
-
-This provides outbound and inbound internet connectivity for resources deployed in the public subnets.
-
-
-
-\---
-
-
-
-\## Security Group
-
-
-
-Terraform creates a security group named:
-
-
-
-```text
-
-cloudcart-sg
-
-```
-
-
-
-The current configuration allows inbound traffic on:
-
-
+Current inbound rules:
 
 | Port | Protocol | Purpose |
-
 | --- | --- | --- |
-
 | 22 | TCP | SSH |
-
 | 80 | TCP | HTTP |
-
 | 443 | TCP | HTTPS |
-
-
 
 Outbound traffic is allowed to all destinations.
 
+The current SSH rule allows access from all IPv4 addresses. In a production environment, administrative access should be restricted to trusted sources.
 
+## Amazon EKS
 
-The current SSH rule allows traffic from `0.0.0.0/0`. For a production environment, SSH access should be restricted to trusted IP ranges or replaced with a more secure administrative access method.
+The Kubernetes environment runs on Amazon Elastic Kubernetes Service.
 
-
-
-\---
-
-
-
-\## Amazon EKS
-
-
-
-CloudCart runs on Amazon Elastic Kubernetes Service.
-
-
-
-The Terraform configuration creates an EKS cluster named:
-
-
+Cluster name:
 
 ```text
-
 cloudcart-eks
-
 ```
-
-
 
 The cluster uses both public subnets created by the VPC module.
 
+Terraform creates the IAM role required by the EKS control plane and attaches `AmazonEKSClusterPolicy`.
 
+## EKS Managed Node Group
 
-Terraform also creates the IAM role required by the EKS control plane.
-
-
-
-The following AWS managed policy is attached to the cluster role:
-
-
+Terraform creates a managed node group named:
 
 ```text
-
-AmazonEKSClusterPolicy
-
-```
-
-
-
-\---
-
-
-
-\## EKS Managed Node Group
-
-
-
-The EKS module provisions a managed worker node group named:
-
-
-
-```text
-
 cloudcart-workers
-
 ```
-
-
-
-Current configuration:
-
-
 
 | Setting | Value |
-
 | --- | --- |
-
 | Instance type | `t3.medium` |
+| Desired size | 1 |
+| Minimum size | 1 |
+| Maximum size | 1 |
 
-| Desired nodes | 1 |
+The worker node IAM role uses:
 
-| Minimum nodes | 1 |
+- `AmazonEKSWorkerNodePolicy`
+- `AmazonEKS_CNI_Policy`
+- `AmazonEC2ContainerRegistryReadOnly`
 
-| Maximum nodes | 1 |
+## Terraform Modules
 
-
-
-The node group runs across the public subnets created by the VPC module.
-
-
-
-\---
-
-
-
-\## Worker Node IAM Permissions
-
-
-
-Terraform creates an IAM role for the EKS worker nodes.
-
-
-
-The following AWS managed policies are attached:
-
-
-
-\- `AmazonEKSWorkerNodePolicy`
-
-\- `AmazonEKS\_CNI\_Policy`
-
-\- `AmazonEC2ContainerRegistryReadOnly`
-
-
-
-These permissions allow worker nodes to participate in the EKS cluster, use AWS VPC networking, and pull container images from Amazon ECR when required.
-
-
-
-\---
-
-
-
-\## Terraform Modules
-
-
-
-The infrastructure is organized using reusable Terraform modules.
-
-
-
-\### VPC Module
-
-
+### VPC Module
 
 Responsible for:
 
+- VPC creation
+- Public subnets
+- Internet Gateway
+- Public route table
+- Route table associations
+- Kubernetes subnet tags
 
+Files:
 
-\- VPC creation
+- `terraform/modules/vpc/main.tf`
+- `terraform/modules/vpc/variables.tf`
+- `terraform/modules/vpc/outputs.tf`
 
-\- Public subnet creation
+### Security Group Module
 
-\- Internet Gateway
+Responsible for the CloudCart network security rules.
 
-\- Public route table
+Files:
 
-\- Route table associations
+- `terraform/modules/security-group/main.tf`
+- `terraform/modules/security-group/variables.tf`
+- `terraform/modules/security-group/outputs.tf`
 
-\- Kubernetes subnet tags
-
-
-
-\### Security Group Module
-
-
-
-Responsible for:
-
-
-
-\- HTTP ingress
-
-\- HTTPS ingress
-
-\- SSH ingress
-
-\- Outbound network access
-
-
-
-\### EKS Module
-
-
+### EKS Module
 
 Responsible for:
 
+- EKS control plane IAM role
+- Amazon EKS cluster
+- Worker node IAM role
+- IAM policy attachments
+- EKS managed node group
 
+Files:
 
-\- EKS cluster IAM role
+- `terraform/modules/eks/main.tf`
+- `terraform/modules/eks/variables.tf`
+- `terraform/modules/eks/outputs.tf`
 
-\- EKS cluster
+## Repository Structure
 
-\- Worker node IAM role
+Main repository contents:
 
-\- IAM policy attachments
+- `.gitignore`
+- `terraform/main.tf`
+- `terraform/provider.tf`
+- `terraform/variables.tf`
+- `terraform/outputs.tf`
+- `terraform/.terraform.lock.hcl`
+- `terraform/modules/vpc`
+- `terraform/modules/security-group`
+- `terraform/modules/eks`
 
-\- EKS managed node group
+Terraform state files are excluded from Git.
 
+## Root Terraform Configuration
 
-
-\---
-
-
-
-\## Repository Structure
-
-
-
-```text
-
-cloudcart-infra/
-
-|
-
-|-- .gitignore
-
-|
-
-`-- terraform/
-
-&#x20;   |-- main.tf
-
-&#x20;   |-- provider.tf
-
-&#x20;   |-- variables.tf
-
-&#x20;   |-- outputs.tf
-
-&#x20;   |-- .terraform.lock.hcl
-
-&#x20;   |
-
-&#x20;   `-- modules/
-
-&#x20;       |-- vpc/
-
-&#x20;       |   |-- main.tf
-
-&#x20;       |   |-- variables.tf
-
-&#x20;       |   `-- outputs.tf
-
-&#x20;       |
-
-&#x20;       |-- security-group/
-
-&#x20;       |   |-- main.tf
-
-&#x20;       |   |-- variables.tf
-
-&#x20;       |   `-- outputs.tf
-
-&#x20;       |
-
-&#x20;       `-- eks/
-
-&#x20;           |-- main.tf
-
-&#x20;           |-- variables.tf
-
-&#x20;           `-- outputs.tf
-
-```
-
-
-
-Terraform state files are intentionally excluded from Git through `.gitignore`.
-
-
-
-\---
-
-
-
-\## Terraform Provider
-
-
-
-The project requires Terraform version 1.5.0 or newer.
-
-
-
-The AWS provider is configured using the HashiCorp AWS provider version 5.x.
-
-
-
-The infrastructure is deployed to:
-
-
-
-```text
-
-ap-south-1
-
-```
-
-
-
-\---
-
-
-
-\## Root Terraform Configuration
-
-
-
-The root Terraform configuration connects the three infrastructure modules.
-
-
+The root configuration connects the infrastructure modules.
 
 ```hcl
-
 module "vpc" {
+  source = "./modules/vpc"
 
-&#x20; source = "./modules/vpc"
-
-
-
-&#x20; project\_name = "cloudcart"
-
-&#x20; vpc\_cidr     = "10.0.0.0/16"
-
+  project_name = "cloudcart"
+  vpc_cidr     = "10.0.0.0/16"
 }
 
+module "security_group" {
+  source = "./modules/security-group"
 
-
-module "security\_group" {
-
-&#x20; source = "./modules/security-group"
-
-
-
-&#x20; vpc\_id = module.vpc.vpc\_id
-
+  vpc_id = module.vpc.vpc_id
 }
-
-
 
 module "eks" {
+  source = "./modules/eks"
 
-&#x20; source = "./modules/eks"
-
-
-
-&#x20; cluster\_name = "cloudcart-eks"
-
-&#x20; subnet\_ids   = module.vpc.public\_subnet\_ids
-
+  cluster_name = "cloudcart-eks"
+  subnet_ids   = module.vpc.public_subnet_ids
 }
-
 ```
 
+The security group depends on the VPC ID, while the EKS module receives the public subnet IDs from the VPC module.
 
+## Terraform Requirements
 
-This creates a dependency chain where the security group depends on the VPC and the EKS cluster uses the subnets created by the VPC module.
+The project requires Terraform 1.5.0 or newer.
 
+The AWS provider uses the HashiCorp AWS provider version 5.x.
 
-
-\---
-
-
-
-\## Terraform Outputs
-
-
-
-The root Terraform configuration exposes the following outputs:
-
-
+AWS region:
 
 ```text
-
-vpc\_id
-
-security\_group\_id
-
-cluster\_name
-
-cluster\_endpoint
-
+ap-south-1
 ```
 
+## Terraform Outputs
 
+The root configuration exposes:
 
-These outputs provide useful information about the infrastructure after deployment.
+- `vpc_id`
+- `security_group_id`
+- `cluster_name`
+- `cluster_endpoint`
 
-
-
-\---
-
-
-
-\## Deploying the Infrastructure
-
-
-
-Before running Terraform, AWS credentials must be configured locally.
-
-
+## Deploying the Infrastructure
 
 Navigate to the Terraform directory:
 
-
-
 ```bash
-
 cd terraform
-
 ```
-
-
 
 Initialize Terraform:
 
-
-
 ```bash
-
 terraform init
-
 ```
 
-
-
-Format the Terraform configuration:
-
-
+Format the configuration:
 
 ```bash
-
 terraform fmt -recursive
-
 ```
 
-
-
-Validate the configuration:
-
-
+Validate it:
 
 ```bash
-
 terraform validate
-
 ```
 
-
-
-Preview the infrastructure changes:
-
-
+Preview changes:
 
 ```bash
-
 terraform plan
-
 ```
-
-
 
 Provision the infrastructure:
 
-
-
 ```bash
-
 terraform apply
-
 ```
 
+Review the Terraform plan before confirming.
 
+## Connecting to Amazon EKS
 
-Review the execution plan and confirm the deployment when prompted.
-
-
-
-\---
-
-
-
-\## Connecting kubectl to EKS
-
-
-
-After the EKS cluster has been created, configure the local Kubernetes context:
-
-
+After the cluster is created:
 
 ```bash
-
 aws eks update-kubeconfig --region ap-south-1 --name cloudcart-eks
-
 ```
 
-
-
-Verify access to the cluster:
-
-
+Verify access:
 
 ```bash
-
 kubectl get nodes
-
 ```
 
+## Terraform State
 
-
-A successful connection should display the EKS managed worker node.
-
-
-
-\---
-
-
-
-\## Destroying the Infrastructure
-
-
-
-When the environment is no longer required, Terraform can remove the infrastructure:
-
-
-
-```bash
-
-terraform destroy
-
-```
-
-
-
-Always review the destruction plan before confirming.
-
-
-
-Destroying temporary environments when they are no longer needed helps prevent unnecessary AWS charges.
-
-
-
-\---
-
-
-
-\## Terraform State
-
-
-
-Terraform state files can contain infrastructure metadata and potentially sensitive information.
-
-
-
-The repository therefore ignores:
-
-
+The repository ignores:
 
 ```text
-
 .terraform/
-
-\*.tfstate
-
-\*.tfstate.\*
-
+*.tfstate
+*.tfstate.*
 terraform.tfvars
-
 ```
 
+Terraform state should not be committed to a public repository.
 
+For a production environment, remote state storage with locking would be preferable to local state.
 
-Terraform state files should not be committed to a public Git repository.
-
-
-
-For a production environment, remote state storage with locking should be configured instead of relying only on local state.
-
-
-
-\---
-
-
-
-\## CloudCart Deployment Workflow
-
-
-
-The complete CloudCart platform follows this workflow:
-
-
-
-```text
-
-Developer
-
-&#x20; |
-
-&#x20; v
-
-cloudcart-apps
-
-&#x20; |
-
-&#x20; v
-
-Jenkins CI
-
-&#x20; |
-
-&#x20; +-- Build container images with Kaniko
-
-&#x20; |
-
-&#x20; +-- Scan container images with Trivy
-
-&#x20; |
-
-&#x20; +-- Push container images
-
-&#x20; |
-
-&#x20; v
-
-cloudcart-manifests
-
-&#x20; |
-
-&#x20; v
-
-Argo CD
-
-&#x20; |
-
-&#x20; v
-
-Amazon EKS
-
-```
-
-
-
-The infrastructure required by Amazon EKS is provisioned separately through this Terraform repository.
-
-
-
-This separation keeps application development, Kubernetes deployment configuration, and infrastructure provisioning independently manageable.
-
-
-
-\---
-
-
-
-\## GitOps Architecture
-
-
+## CI/CD and GitOps Integration
 
 CloudCart separates Continuous Integration from Continuous Deployment.
 
+### Continuous Integration
 
+Jenkins handles:
 
-\### Continuous Integration
+- Application builds
+- Container image builds with Kaniko
+- Container security scanning with Trivy
+- Container image publishing
+- GitOps manifest image tag updates
 
+### Continuous Deployment
 
+Argo CD handles Kubernetes deployment.
 
-Jenkins handles the CI workflow.
+The `cloudcart-manifests` repository acts as the GitOps source of truth. Argo CD synchronizes the desired Kubernetes configuration with Amazon EKS.
 
+## Infrastructure Lifecycle
 
+Typical Terraform workflow:
 
-Its responsibilities include:
-
-
-
-\- Building application services
-
-\- Building container images
-
-\- Running container security scans
-
-\- Publishing container images
-
-\- Updating deployment image versions
-
-
-
-\### Continuous Deployment
-
-
-
-Argo CD handles Kubernetes deployment through GitOps.
-
-
-
-Argo CD monitors the `cloudcart-manifests` repository and synchronizes the desired Kubernetes configuration with the EKS cluster.
-
-
-
-This creates a Git-based source of truth for application deployment.
-
-
-
-\---
-
-
-
-\## Infrastructure Lifecycle
-
-
-
-The infrastructure lifecycle follows a standard Terraform workflow:
-
-
-
-```text
-
+```bash
 terraform init
-
-terraform fmt
-
+terraform fmt -recursive
 terraform validate
-
 terraform plan
-
 terraform apply
-
 ```
 
+When the environment is no longer required:
 
+```bash
+terraform destroy
+```
 
-After provisioning, AWS CLI and kubectl are used to configure access to the EKS cluster.
+Review the destruction plan before confirming.
 
-
-
-Application workloads are then deployed through Argo CD rather than directly through Terraform.
-
-
-
-\---
-
-
-
-\## Technologies Used
-
-
+## Technology Stack
 
 | Technology | Purpose |
-
 | --- | --- |
-
+| AWS | Cloud platform |
 | Terraform | Infrastructure as Code |
-
-| AWS | Cloud infrastructure |
-
-| Amazon VPC | Network isolation |
-
+| Amazon VPC | Networking |
 | Amazon EKS | Managed Kubernetes |
-
-| AWS IAM | Identity and access management |
-
-| EC2 | EKS worker node compute |
-
+| AWS IAM | Roles and permissions |
+| EC2 | Worker compute |
 | Kubernetes | Container orchestration |
-
-| Argo CD | GitOps deployment |
-
 | Jenkins | Continuous Integration |
-
 | Kaniko | Container image builds |
-
 | Trivy | Container security scanning |
-
-| Prometheus | Metrics collection |
-
-| Grafana | Monitoring and visualization |
-
+| Argo CD | GitOps deployment |
+| Prometheus | Metrics |
+| Grafana | Monitoring |
 | Loki | Centralized logging |
-
 | Git | Version control |
+| GitHub | Repository hosting |
 
-| GitHub | Source code hosting |
+## DevOps Concepts Demonstrated
 
+This project demonstrates:
 
+- Infrastructure as Code
+- Terraform modules
+- AWS networking
+- IAM roles and policies
+- Amazon EKS
+- Kubernetes infrastructure
+- Managed worker nodes
+- Infrastructure dependencies
+- CI/CD
+- GitOps
+- Container security scanning
+- Monitoring and observability
+- Infrastructure lifecycle management
 
-\---
+## Related Repositories
 
-
-
-\## Key DevOps Concepts Demonstrated
-
-
-
-This infrastructure project demonstrates practical experience with:
-
-
-
-\- Infrastructure as Code
-
-\- Terraform modules
-
-\- AWS networking
-
-\- VPC architecture
-
-\- IAM roles and policies
-
-\- Amazon EKS
-
-\- Kubernetes infrastructure
-
-\- Managed worker nodes
-
-\- Infrastructure dependency management
-
-\- GitOps architecture
-
-\- CI/CD separation
-
-\- Containerized workloads
-
-\- Infrastructure lifecycle management
-
-\- Cloud resource provisioning
-
-\- Git-based infrastructure version control
-
-
-
-\---
-
-
-
-\## Related Repositories
-
-
-
-The complete CloudCart project is divided into three repositories.
-
-
-
-\### cloudcart-apps
-
-
+### cloudcart-apps
 
 Contains:
 
+- Node.js microservices
+- Dockerfiles
+- Jenkins pipeline
+- Kaniko container builds
+- Trivy scanning
 
-
-\- Node.js microservices
-
-\- Dockerfiles
-
-\- Jenkins pipeline
-
-\- Container build configuration
-
-\- CI workflow
-
-
-
-\### cloudcart-manifests
-
-
+### cloudcart-manifests
 
 Contains:
 
+- Kubernetes Deployments
+- Kubernetes Services
+- NGINX Ingress
+- Argo CD Application configuration
 
-
-\- Kubernetes Deployments
-
-\- Kubernetes Services
-
-\- NGINX Ingress configuration
-
-\- Argo CD Application configuration
-
-\- GitOps deployment manifests
-
-
-
-\### cloudcart-infra
-
-
+### cloudcart-infra
 
 Contains:
 
+- Terraform configuration
+- VPC resources
+- Public subnets
+- Security group
+- IAM roles
+- Amazon EKS
+- Managed node group
 
+Together, these repositories demonstrate the CloudCart workflow from infrastructure provisioning through CI and GitOps deployment.
 
-\- Terraform configuration
-
-\- VPC module
-
-\- Security group module
-
-\- EKS module
-
-\- IAM configuration
-
-\- AWS infrastructure definitions
-
-
-
-Together, these repositories represent the complete CloudCart DevOps platform.
-
-
-
-\---
-
-
-
-\## Current Infrastructure Configuration
-
-
+## Current Project Scope
 
 The current Terraform implementation provisions:
 
+- One VPC
+- Two public subnets
+- One Internet Gateway
+- One public route table
+- One security group
+- EKS control plane IAM resources
+- Worker node IAM resources
+- One Amazon EKS cluster
+- One managed node group
+- One `t3.medium` worker node
 
+The project is intended as a portfolio and learning environment demonstrating AWS, Terraform, Kubernetes, CI/CD, GitOps, security scanning, monitoring, and logging.
 
-\- One VPC
+## Author
 
-\- Two public subnets
-
-\- One Internet Gateway
-
-\- One public route table
-
-\- One security group
-
-\- EKS control plane IAM role
-
-\- Worker node IAM role
-
-\- Amazon EKS cluster
-
-\- One EKS managed node group
-
-\- One `t3.medium` worker node
-
-
-
-The configuration is designed as a learning and portfolio environment demonstrating AWS, Terraform, Kubernetes, CI/CD, and GitOps concepts.
-
-
-
-\---
-
-
-
-\## Author
-
-
-
-\*\*Somil Mor\*\*
-
-
+**Somil Mor**
 
 B.Tech Electronics and Communication Engineering
 
-
-
 DevOps and Cloud Engineering
 
-
-
-Core technologies:
-
-
-
-`AWS` `Terraform` `Linux` `Docker` `Kubernetes` `Jenkins` `Argo CD` `Git` `GitHub` `Prometheus` `Grafana` `Loki`
-
+Core technologies: AWS, Terraform, Linux, Docker, Kubernetes, Jenkins, Argo CD, Git, GitHub, Prometheus, Grafana, and Loki.
